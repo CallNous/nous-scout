@@ -1,0 +1,202 @@
+You are helping me build a tire shop prospecting scraper tool called NOUS Scout. 
+
+## PROJECT GOAL
+Build a Node.js CLI tool that finds independent tire shops in a given city, scrapes their Google reviews and website, and scores each shop for two things:
+1. NOUS signal score — likelihood they're losing calls and need an AI phone agent
+2. TireConnect signal score — likelihood they have no online tire catalog and need one
+
+Output is a ranked CSV and a simple HTML report I can open in a browser.
+
+## TECH STACK
+- Node.js (no framework needed, keep it simple)
+- Google Places API (for shop discovery + reviews)
+- Puppeteer or Cheerio for website scraping (use Cheerio first, fallback to Puppeteer if JS-rendered)
+- Anthropic Claude API (claude-sonnet-4-20250514) for review sentiment analysis
+- csv-writer for output
+- dotenv for API keys
+
+## PROJECT STRUCTURE
+nous-scout/
+├── .env
+├── .env.example  
+├── package.json
+├── CLAUDE.md
+├── src/
+│   ├── index.js          # CLI entry point
+│   ├── places.js         # Google Places API calls
+│   ├── scraper.js        # Website scraper
+│   ├── analyzer.js       # Claude API review analyzer
+│   ├── scorer.js         # Scoring logic
+│   └── reporter.js       # CSV + HTML output
+└── output/               # Generated reports go here
+
+## ENVIRONMENT VARIABLES NEEDED
+GOOGLE_PLACES_API_KEY=
+ANTHROPIC_API_KEY=
+
+## DETAILED COMPONENT SPECS
+
+### 1. CLI (index.js)
+- Accept two arguments: city name and province/state (e.g. "Toronto" "ON")
+- Accept optional --radius flag in km (default 25km)
+- Accept optional --max flag for max shops to process (default 50)
+- Show progress in terminal as it runs
+- Example: node src/index.js "Toronto" "ON" --radius 30 --max 40
+
+### 2. Google Places API (places.js)
+Use the Places API Text Search + Place Details endpoints.
+
+Step 1 - Search: 
+- Query: "tire shop [city] [province]" and "pneu [city]" (bilingual)
+- Also search: "auto service [city]" and "wheel and tire [city]"
+- Deduplicate results by place_id
+- Filter OUT these franchise chains (they're not prospects):
+  Kal Tire, OK Tire, Fountain Tire, Canadian Tire, Costco, Walmart,
+  Midas, Jiffy Lube, Speedy, Meineke, Pep Boys, Firestone, Goodyear,
+  Mavis, NTB, Tire Kingdom, Town Fair Tire, Brakes Plus
+
+Step 2 - Place Details:
+For each result fetch: name, address, phone, website, rating, user_ratings_total, opening_hours, reviews (up to 5 most recent)
+
+Return structured array of shop objects.
+
+### 3. Website Scraper (scraper.js)
+For each shop with a website URL, scrape and check for these signals.
+
+NOUS signals (each true = +1 to NOUS score):
+- no_online_booking: true if NO booking widget, Calendly link, or appointment form found
+- call_for_pricing: true if text "call for pricing" or "call us for" found anywhere
+- no_hours_listed: true if opening hours not found on website
+- basic_contact_only: true if only a phone number / contact form, no service details
+
+TireConnect signals (each true = +1 to TC score):
+- no_tire_catalog: true if NO tire shopping/catalog functionality found
+  (look for absence of: "shop tires", "buy tires", "tire catalog", "browse tires", tireconnect.ca links, iframe with tire inventory)
+- already_has_tireconnect: true if tireconnect.ca appears anywhere on page (flag these — NOUS only, not TC referral)
+- static_pricing: true if PDF links or static price tables found instead of dynamic catalog
+- no_ecommerce: true if no cart, no "add to cart", no checkout flow detected
+
+Also extract: 
+- page_title
+- meta_description  
+- has_ssl (https)
+- estimated_page_quality (basic/medium/professional based on presence of images, structured nav, etc.)
+
+If website is unreachable or times out after 8 seconds, mark all signals as null and note "site_unreachable".
+
+### 4. Review Analyzer (analyzer.js)
+Take the 5 most recent Google reviews for each shop and send them to Claude API for analysis.
+
+System prompt:
+"You are analyzing Google reviews for an independent tire shop to identify operational pain points. Return ONLY valid JSON, no other text."
+
+User prompt:
+"Analyze these reviews and return a JSON object with exactly these fields:
+{
+  nous_signals: {
+    missed_calls_mentioned: boolean,  // reviews mention voicemail, no answer, couldn't reach, busy
+    after_hours_issues: boolean,      // reviews mention calling after hours, evenings, weekends
+    wait_times_mentioned: boolean,    // reviews mention long hold times or being put on hold
+    responsiveness_score: number      // 1-5, how responsive shop seems based on reviews
+  },
+  general: {
+    overall_sentiment: string,        // positive / mixed / negative
+    top_complaint: string,            // single sentence, most common complaint or null
+    top_praise: string                // single sentence, most common praise or null
+  }
+}
+
+Reviews to analyze:
+[REVIEWS_TEXT]"
+
+Cache results to avoid re-calling API if script is re-run on same data.
+
+### 5. Scorer (scorer.js)
+Calculate final scores for each shop.
+
+NOUS Score (0-10):
+- no_online_booking: +2
+- missed_calls_mentioned in reviews: +2  
+- after_hours_issues in reviews: +2
+- call_for_pricing: +1
+- wait_times_mentioned: +1
+- rating between 3.5-4.3 (good shop, room to grow): +1
+- has 50+ reviews (established, real volume): +1
+
+TireConnect Score (0-10):
+- no_tire_catalog: +3
+- static_pricing: +2
+- no_ecommerce: +2
+- call_for_pricing: +1
+- basic_contact_only: +1
+- already_has_tireconnect: FLAG — set TC score to 0, add note "existing TC customer"
+
+Priority Tier:
+- "HOT" — NOUS score >= 7
+- "WARM" — NOUS score 4-6  
+- "COLD" — NOUS score < 4
+
+TC Opportunity:
+- "YES" — TC score >= 5 and not existing TC customer
+- "MAYBE" — TC score 3-4
+- "NO" — TC score < 3 or existing TC customer
+
+### 6. Reporter (reporter.js)
+Generate two outputs in the /output folder, named with city + timestamp.
+
+CSV columns (in this order):
+priority_tier, shop_name, address, phone, website, rating, review_count,
+nous_score, tc_score, tc_opportunity,
+missed_calls_mentioned, after_hours_issues, no_online_booking, no_tire_catalog,
+already_has_tireconnect, top_complaint, top_praise, overall_sentiment, notes
+
+HTML Report:
+- Clean, readable, no external dependencies (inline CSS only)
+- Header showing: city, date run, total shops found, HOT count, WARM count, TC opportunities
+- Table sorted by NOUS score descending
+- Color code rows: HOT = light red, WARM = light yellow, COLD = white
+- Flag "existing TC customer" rows in blue
+- Each shop row shows all key fields
+- Clicking website URL opens in new tab
+
+## CLAUDE.md FILE
+Create a CLAUDE.md in the project root with:
+- Full project description and purpose
+- How each module works
+- How to add new cities
+- How to adjust scoring weights
+- Known limitations (JS-heavy sites may not scrape well, Google Places API quotas)
+- Signal definitions for both NOUS and TireConnect
+
+## ERROR HANDLING
+- If Google Places returns no results, exit gracefully with message
+- If a website times out, continue to next shop, log the failure
+- If Claude API fails on a shop, set all review signals to null and continue
+- Rate limit Google Places calls: 100ms delay between requests
+- Rate limit Claude API calls: 500ms delay between requests
+- If script crashes mid-run, log last completed shop so you know where to restart
+
+## PACKAGE.JSON SCRIPTS
+- "start": runs the CLI
+- "scout": alias for start  
+- "test:places": tests Google Places connection with a single known shop
+- "test:scraper": tests scraper on a single URL passed as argument
+- "test:claude": tests Claude API connection with dummy review text
+
+## FIRST THING TO DO
+1. Scaffold the full project structure with all files and package.json
+2. Set up .env.example with all required keys
+3. Build places.js first and test it — confirm Google Places API returns real tire shop data for "Toronto ON" before building anything else
+4. Then build scraper.js
+5. Then analyzer.js
+6. Then scorer.js and reporter.js
+7. Wire it all together in index.js last
+
+Ask me for my API keys once the scaffold is ready. Do not hardcode any keys.
+
+## IMPORTANT NOTES
+- Keep each file under 200 lines — split logic if needed
+- Use async/await throughout, no callback hell
+- Console.log progress at each step so I can see what's happening
+- This will eventually be expanded to run across multiple cities in batch — build with that in mind
+- I am comfortable with code but not a professional developer — keep comments clear
