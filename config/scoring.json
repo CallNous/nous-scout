@@ -1,0 +1,73 @@
+{
+  "franchises": [
+    "Kal Tire",
+    "OK Tire",
+    "Fountain Tire",
+    "Canadian Tire",
+    "Costco",
+    "Walmart",
+    "Midas",
+    "Jiffy Lube",
+    "Speedy",
+    "Meineke",
+    "Pep Boys",
+    "Firestone",
+    "Goodyear",
+    "Mavis",
+    "NTB",
+    "National Tire and Battery",
+    "Tire Kingdom",
+    "Town Fair Tire",
+    "Brakes Plus",
+    "Big O Tires",
+    "Discount Tire",
+    "Les Schwab",
+    "Monro",
+    "Valvoline",
+    "Mr. Lube",
+    "Mr Lube",
+    "Minit-Tune",
+    "Master Mechanic",
+    "Active Green+Ross",
+    "Active Green + Ross"
+  ],
+  "searchQueries": [
+    "tire shop",
+    "pneu",
+    "auto service",
+    "wheel and tire"
+  ],
+  "nousWeights": {
+    "no_online_booking": 2,
+    "missed_calls_mentioned": 2,
+    "after_hours_issues": 2,
+    "call_for_pricing": 1,
+    "wait_times_mentioned": 1,
+    "booking_difficulty": 2,
+    "went_to_competitor": 2,
+    "call_to_book": 1,
+    "rating_sweet_spot": 1,
+    "established_volume": 1,
+    "hours_gap_with_after_hours_complaints": 1
+  },
+  "tcWeights": {
+    "no_tire_catalog": 3,
+    "static_pricing": 2,
+    "no_ecommerce": 2,
+    "call_for_pricing": 1,
+    "basic_contact_only": 1
+  },
+  "tiers": {
+    "hot": 7,
+    "warm": 4
+  },
+  "tcOpportunity": {
+    "yes": 5,
+    "maybe": 3
+  },
+  "ratingSweetSpot": {
+    "min": 3.5,
+    "max": 4.3
+  },
+  "establishedReviewCount": 50
+}

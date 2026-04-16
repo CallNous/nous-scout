@@ -1,0 +1,32 @@
+{
+  "name": "nous-scout",
+  "version": "0.1.0",
+  "description": "CLI to find independent tire shops and score them for NOUS (AI phone agent) + TireConnect (online tire catalog) fit",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "scout": "node src/index.js",
+    "test:places": "node src/places.js --selftest",
+    "test:scraper": "node src/scraper.js --selftest",
+    "test:claude": "node src/analyzer.js --selftest",
+    "test:pitch": "node src/pitch.js --selftest",
+    "test:scorer": "node src/scorer.js --selftest",
+    "test:reporter": "node src/reporter.js --selftest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "cheerio": "^1.0.0",
+    "commander": "^12.1.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.4.5",
+    "p-retry": "^6.2.0",
+    "undici": "^6.19.8"
+  },
+  "optionalDependencies": {
+    "puppeteer": "^23.5.0"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+output/
+logs/
+cache.json
+cache.json.tmp
+cache.json.corrupt-*
+.DS_Store
+*.log
