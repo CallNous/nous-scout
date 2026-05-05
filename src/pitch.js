@@ -1,27 +1,90 @@
 // Cold-email opener generator.
-// For each scored shop, asks Sonnet 4.6 to write ONE sentence that references
+// For each scored shop, asks Grok 4.3 to write ONE sentence that references
 // the shop's specific situation — their top complaint, their missing capability,
 // or a pain point we can speak to credibly. Used as the opening line of an
 // outreach email so the recipient sees we did homework before writing.
 //
-// Cached by (place_id + nous_score + top_complaint) so it only regenerates when
-// scoring or review sentiment actually changes.
+// Migrated 2026-05-05 from Claude Sonnet 4.6 to xAI Grok 4.3 per Anton's
+// "all extraction/generation goes through Grok 4.3" rule. xAI handles
+// prompt caching automatically (no cache_control field needed).
+//
+// Cached by (place_id + nous_score + top_complaint) so it only regenerates
+// when scoring or review sentiment actually changes.
 
 import 'dotenv/config';
-import Anthropic from '@anthropic-ai/sdk';
+import { request } from 'undici';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cache } from './cache.js';
 import { createLimiter, sleep } from './lib/rateLimit.js';
 import { log } from './lib/logger.js';
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'grok-4.3';
+const XAI_URL = 'https://api.x.ai/v1/chat/completions';
 const limit = createLimiter(500);
 
-let _client = null;
-function client() {
-  if (_client) return _client;
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set in .env');
-  _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return _client;
+function loadFromFileIfMissing(p, keys) {
+  if (!fs.existsSync(p)) return;
+  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!keys.includes(key)) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
+loadFromFileIfMissing(path.resolve('../nous-web/.env.local'), ['XAI_API_KEY']);
+
+function xaiKey() {
+  const k = process.env.XAI_API_KEY;
+  if (!k) throw new Error('XAI_API_KEY not set in .env (or nous-web/.env.local)');
+  return k;
+}
+
+async function callGrok(systemPrompt, userPrompt, { maxTokens = 120, retries = 4 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    await limit();
+    try {
+      const res = await request(XAI_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${xaiKey()}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          temperature: 0.4,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      });
+      const data = await res.body.json();
+      if (res.statusCode >= 400) {
+        const err = new Error(`Grok ${res.statusCode}: ${JSON.stringify(data).slice(0, 200)}`);
+        err.status = res.statusCode;
+        throw err;
+      }
+      return data?.choices?.[0]?.message?.content || '';
+    } catch (err) {
+      const status = err.status || err.statusCode;
+      if ((status === 429 || status === 503 || status === 529) && attempt < retries) {
+        const wait = Math.min(2000 * 2 ** attempt, 30000);
+        log.debug(`pitch Grok ${status}, retry ${attempt + 1}/${retries} in ${wait}ms`);
+        await sleep(wait);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 const SYSTEM = `You write ONE-sentence cold-email openers for B2B outreach to independent tire shops.
@@ -111,35 +174,8 @@ export async function generatePitch(shop, score) {
   if (cached) return cached;
 
   try {
-    let msg;
-    for (let attempt = 0; attempt <= 4; attempt++) {
-      await limit();
-      try {
-        msg = await client().messages.create({
-          model: MODEL,
-          max_tokens: 120,
-          system: [
-            {
-              type: 'text',
-              text: SYSTEM,
-              cache_control: { type: 'ephemeral' },
-            },
-          ],
-          messages: [{ role: 'user', content: buildUserPrompt(shop, score) }],
-        });
-        break;
-      } catch (err) {
-        const status = err.status || err.statusCode;
-        if ((status === 529 || status === 429) && attempt < 4) {
-          const wait = Math.min(2000 * 2 ** attempt, 30000);
-          log.debug(`pitch Claude ${status}, retry ${attempt + 1}/4 in ${wait}ms`);
-          await sleep(wait);
-          continue;
-        }
-        throw err;
-      }
-    }
-    const text = (msg.content?.[0]?.text || '').trim().replace(/^["']|["']$/g, '');
+    const raw = await callGrok(SYSTEM, buildUserPrompt(shop, score));
+    const text = raw.trim().replace(/^["']|["']$/g, '');
     cache.putPitch(key, text);
     return text;
   } catch (err) {
@@ -176,27 +212,8 @@ export async function generateTcPitch(shop, score) {
   if (cached) return cached;
 
   try {
-    let msg;
-    for (let attempt = 0; attempt <= 4; attempt++) {
-      await limit();
-      try {
-        msg = await client().messages.create({
-          model: MODEL,
-          max_tokens: 120,
-          system: [{ type: 'text', text: TC_SYSTEM, cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: buildTcUserPrompt(shop, score) }],
-        });
-        break;
-      } catch (err) {
-        const status = err.status || err.statusCode;
-        if ((status === 529 || status === 429) && attempt < 4) {
-          await sleep(Math.min(2000 * 2 ** attempt, 30000));
-          continue;
-        }
-        throw err;
-      }
-    }
-    const text = (msg.content?.[0]?.text || '').trim().replace(/^["']|["']$/g, '');
+    const raw = await callGrok(TC_SYSTEM, buildTcUserPrompt(shop, score));
+    const text = raw.trim().replace(/^["']|["']$/g, '');
     if (text === 'N/A' || text.toLowerCase().includes('n/a')) return '';
     cache.putPitch(key, text);
     return text;

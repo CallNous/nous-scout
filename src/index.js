@@ -33,7 +33,7 @@ function parseArgs() {
     .argument('[province]', 'Province or state code (e.g. "ON")')
     .option('-r, --radius <km>', 'Search radius in km', '25')
     .option('-m, --max <n>', 'Max shops to process', '50')
-    .option('--model <name>', 'Anthropic model for review analysis', 'claude-haiku-4-5')
+    .option('--model <name>', 'xAI Grok model for review analysis', 'grok-4.3')
     .option('--no-cache', 'Skip cache reads (still writes)')
     .option('--batch <file>', 'Newline-separated "City, Province" list')
     .option('--enrich', 'Enable Apollo.io owner enrichment', false)

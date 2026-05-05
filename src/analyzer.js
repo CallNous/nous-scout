@@ -1,28 +1,52 @@
-// Claude-powered review analyzer.
-// Sends each shop's up-to-5 Google reviews to Haiku 4.5, gets back a JSON
+// Grok-powered review analyzer.
+// Sends each shop's up-to-5 Google reviews to Grok 4.3, gets back a JSON
 // object with NOUS-relevant signals and a short sentiment read.
 //
-// Two cost levers are in play:
-//   1. Prompt caching — the long system prompt is marked cache_control so
-//      repeat calls within the 5-min TTL hit the cache (~90% discount).
-//   2. SQLite cache — analyses are keyed by hash of the reviews text, so
-//      identical inputs across runs return for free.
+// Migrated 2026-05-05 from Claude Haiku 4.5 to xAI Grok 4.3 per Anton's
+// "all extraction/generation goes through Grok 4.3" rule. xAI's chat
+// completions endpoint is OpenAI-compatible. Prompt caching no longer
+// requires an explicit cache_control field -- xAI caches identical
+// system prompts within its TTL automatically.
+//
+// Cache layers:
+//   1. xAI's automatic prompt cache (server-side, transparent)
+//   2. SQLite cache keyed by hash of reviews text -- identical inputs
+//      across runs return for free.
 
 import 'dotenv/config';
-import Anthropic from '@anthropic-ai/sdk';
+import { request } from 'undici';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cache } from './cache.js';
 import { createLimiter, sleep } from './lib/rateLimit.js';
 import { log } from './lib/logger.js';
 
-const DEFAULT_MODEL = 'claude-haiku-4-5';
-const limit = createLimiter(500); // 500ms between Claude calls
+const DEFAULT_MODEL = 'grok-4.3';
+const XAI_URL = 'https://api.x.ai/v1/chat/completions';
+const limit = createLimiter(500); // 500ms between Grok calls
 
-let _client = null;
-function client() {
-  if (_client) return _client;
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set in .env');
-  _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return _client;
+function loadFromFileIfMissing(p, keys) {
+  if (!fs.existsSync(p)) return;
+  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!keys.includes(key)) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
+loadFromFileIfMissing(path.resolve('../nous-web/.env.local'), ['XAI_API_KEY']);
+
+function xaiKey() {
+  const k = process.env.XAI_API_KEY;
+  if (!k) throw new Error('XAI_API_KEY not set in .env (or nous-web/.env.local)');
+  return k;
 }
 
 const SYSTEM_PROMPT = `You are analyzing Google reviews for an independent tire shop. Your goal is to find signals that the shop is LOSING BUSINESS because they can't handle their phone volume — specifically the problems that an AI phone agent (24/7 call answering, automated booking, after-hours capture) would solve.
@@ -92,34 +116,40 @@ function validate(obj) {
   return true;
 }
 
-async function callClaude(reviewsText, model, retries = 4) {
+async function callGrok(reviewsText, model, retries = 4) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     await limit();
     try {
-      const msg = await client().messages.create({
-        model,
-        max_tokens: 600,
-        system: [
-          {
-            type: 'text',
-            text: SYSTEM_PROMPT,
-            cache_control: { type: 'ephemeral' },
-          },
-        ],
-        messages: [
-          {
-            role: 'user',
-            content: `Reviews to analyze:\n\n${reviewsText}`,
-          },
-        ],
+      const res = await request(XAI_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${xaiKey()}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 600,
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: `Reviews to analyze:\n\n${reviewsText}` },
+          ],
+        }),
       });
-      const text = msg.content?.[0]?.text || '';
-      return { text, usage: msg.usage };
+      const data = await res.body.json();
+      if (res.statusCode >= 400) {
+        const err = new Error(`Grok ${res.statusCode}: ${JSON.stringify(data).slice(0, 200)}`);
+        err.status = res.statusCode;
+        throw err;
+      }
+      const text = data?.choices?.[0]?.message?.content || '';
+      return { text, usage: data?.usage };
     } catch (err) {
       const status = err.status || err.statusCode;
-      if ((status === 529 || status === 429) && attempt < retries) {
+      if ((status === 429 || status === 503 || status === 529) && attempt < retries) {
         const wait = Math.min(2000 * 2 ** attempt, 30000);
-        log.debug(`Claude ${status}, retry ${attempt + 1}/${retries} in ${wait}ms`);
+        log.debug(`Grok ${status}, retry ${attempt + 1}/${retries} in ${wait}ms`);
         await sleep(wait);
         continue;
       }
@@ -129,7 +159,8 @@ async function callClaude(reviewsText, model, retries = 4) {
 }
 
 function parseJson(text) {
-  // Claude *should* return pure JSON, but strip common wrappers just in case.
+  // Grok with response_format json_object should return pure JSON, but strip
+  // common wrappers just in case.
   const trimmed = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   try {
     return JSON.parse(trimmed);
@@ -157,12 +188,12 @@ export async function analyzeReviews(reviews, { model = DEFAULT_MODEL } = {}) {
   if (cached) return cached;
 
   try {
-    let { text } = await callClaude(reviewsText, model);
+    let { text } = await callGrok(reviewsText, model);
     let parsed = parseJson(text);
     if (!validate(parsed)) {
       log.warn('analyzer: first response invalid, retrying once');
       await sleep(400);
-      ({ text } = await callClaude(
+      ({ text } = await callGrok(
         `${reviewsText}\n\nIMPORTANT: Your previous response did not validate. Return ONLY the JSON object with EXACTLY the fields in the schema. No markdown, no prose.`,
         model
       ));
