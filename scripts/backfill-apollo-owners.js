@@ -56,6 +56,7 @@ function loadFromFileIfMissing(p, keys) {
 loadFromFileIfMissing(path.resolve('../nous-web/.env.local'), [
   'NEXT_PUBLIC_SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
+  'APOLLO_API_KEY',
 ]);
 
 const APOLLO_KEY = process.env.APOLLO_API_KEY;
