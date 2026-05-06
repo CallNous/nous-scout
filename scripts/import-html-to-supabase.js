@@ -257,3 +257,10 @@ for (let i = 0; i < rows.length; i += CHUNK) {
 
 process.stdout.write('\n');
 console.log(`Done. Upserted ${inserted}, failed ${failed}.`);
+if (inserted > 0) {
+  console.log(
+    '\nNew rows need lat/lng for the route-optimize endpoint. Run:\n' +
+      '  node scripts/backfill-geocodes.js\n' +
+      '(Idempotent; only touches rows where latitude IS NULL.)'
+  );
+}
