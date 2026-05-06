@@ -33,9 +33,11 @@
   ],
   "searchQueries": [
     "tire shop",
-    "pneu",
-    "auto service",
-    "wheel and tire"
+    "tire store",
+    "tire dealer",
+    "tire and wheel",
+    "wheel and tire",
+    "pneu"
   ],
   "nousWeights": {
     "no_online_booking": 2,

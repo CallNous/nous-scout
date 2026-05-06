@@ -151,6 +151,18 @@ for (const panel of cityPanels) {
     const $card = $(card);
     const tier = $card.attr('data-tier') || null;
     const tcOpp = $card.attr('data-tc') || null;
+    // data-types is JSON-encoded by reporter.js (e.g. ["tire_shop","car_repair"]).
+    // Older HTML reports won't have it; treat missing/invalid as empty array.
+    let types = [];
+    const typesAttr = $card.attr('data-types');
+    if (typesAttr) {
+      try {
+        const parsed = JSON.parse(typesAttr);
+        if (Array.isArray(parsed)) types = parsed.filter((t) => typeof t === 'string');
+      } catch {
+        // Malformed attr -- leave empty so the trigger falls back to name regex.
+      }
+    }
     const shopName = $card.find('.call-name').first().text().trim();
     if (!shopName) return;
     const address = $card.find('.call-address').first().text().trim() || null;
@@ -205,6 +217,7 @@ for (const panel of cityPanels) {
       },
       nous_pitch: nousPitch,
       contact_names: contactNames,
+      types,
       run_id: runId,
       source: 'html_import',
     });

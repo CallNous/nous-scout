@@ -58,6 +58,7 @@ function flattenShop(shop) {
     apollo_source: enrichment.apollo_source || '',
     notes: score.notes || '',
     google_url: shop.google_url || '',
+    types: Array.isArray(shop.types) ? shop.types : [],
   };
 }
 
@@ -416,7 +417,7 @@ function renderCallList(shops) {
     const phone = f.phone.replace(/[^0-9+]/g, '');
     const hasTc = f.tc_opportunity === 'YES' || f.tc_opportunity === 'MAYBE';
     return `
-    <div class="call-card ${tierClass(f.priority_tier)}" data-tier="${f.priority_tier}" data-tc="${f.tc_opportunity}">
+    <div class="call-card ${tierClass(f.priority_tier)}" data-tier="${f.priority_tier}" data-tc="${f.tc_opportunity}" data-types="${esc(JSON.stringify(f.types))}">
       <div class="call-header">
         <span class="call-rank">#${i + 1}</span>
         <span class="tier-badge ${tierClass(f.priority_tier)}">${esc(f.priority_tier)}</span>
