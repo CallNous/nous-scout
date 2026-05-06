@@ -96,6 +96,11 @@ async function textSearch(query, location) {
 
   const body = {
     textQuery: `${query} ${location}`,
+    // Restrict to Google's tire_shop classification. Catches dual-category
+    // shops too (places.types may include both `tire_shop` and `car_repair`)
+    // but excludes pure auto-repair shops that the textQuery would otherwise
+    // pull in.
+    includedType: 'tire_shop',
     // languageCode: 'en', // omit — let Google decide based on region
   };
 
