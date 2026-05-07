@@ -51,6 +51,7 @@ const DETAIL_FIELDS = [
   'googleMapsUri',
   'businessStatus',
   'types',
+  'location',
 ].join(',');
 
 async function placesPost(pathname, body, fieldMask) {
@@ -113,7 +114,7 @@ async function textSearch(query, location) {
   return results;
 }
 
-async function getPlaceDetails(placeId) {
+export async function getPlaceDetails(placeId) {
   const hit = cache.getDetails(placeId);
   if (hit) return hit;
 
@@ -207,6 +208,8 @@ export async function findShops({ city, province, max }) {
         reviews: normalizeReviews(d.reviews),
         google_url: d.googleMapsUri || '',
         types: d.types || [],
+        latitude: d.location?.latitude ?? null,
+        longitude: d.location?.longitude ?? null,
       });
       log.step(i + 1, capped.length, `details: ${dName || name}`);
     } catch (err) {

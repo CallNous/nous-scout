@@ -70,7 +70,8 @@ function computeMaturity(shop) {
 
   // Bracket
   let tier, estRevenue;
-  if (score >= 8) { tier = 'established'; estRevenue = '$1M+'; }
+  if (score >= 10) { tier = 'premium'; estRevenue = '$2M+'; }
+  else if (score >= 8) { tier = 'established'; estRevenue = '$1M+'; }
   else if (score >= 5) { tier = 'growing'; estRevenue = '$500K-1M'; }
   else if (score >= 3) { tier = 'small'; estRevenue = '$250K-500K'; }
   else { tier = 'micro'; estRevenue = '<$250K'; }
@@ -160,6 +161,37 @@ export function scoreShop(shop) {
   }
   if (scrape.site_unreachable) notes.push(`site unreachable (${scrape.reason || 'timeout'})`);
 
+  const maturity = computeMaturity(shop);
+
+  // Quick-lube type exclusion: if Google types include gas_station, car_wash, etc.,
+  // force maturity down. These are oil-change shops that upsell tires.
+  const types = Array.isArray(shop.types) ? shop.types : [];
+  const excludeTypes = cfg.excludeTypes || [];
+  const hasExcludedType = types.some((t) => excludeTypes.includes(t));
+  if (hasExcludedType) {
+    maturity.tier = 'micro';
+    maturity.est_revenue = '<$250K';
+    notes.push(`excluded type: ${types.filter((t) => excludeTypes.includes(t)).join(', ')}`);
+  }
+
+  // Size bonus: larger shops get an additive boost on NOUS score.
+  const sw = cfg.sizeWeights || {};
+  let sizeBonus = 0;
+  if ((shop.review_count || 0) >= 200 && sw.review_count_200_plus) sizeBonus += sw.review_count_200_plus;
+  if (maturity.review_velocity >= 100 && sw.review_velocity_100_plus) sizeBonus += sw.review_velocity_100_plus;
+  if (maturity.staff_count >= 3 && sw.staff_count_3_plus) sizeBonus += sw.staff_count_3_plus;
+
+  // Premium name/service signals
+  const nameLower = (shop.name || '').toLowerCase();
+  const premiumNameKw = cfg.premiumNameKeywords || [];
+  const hasPremiumName = premiumNameKw.some((kw) => nameLower.includes(kw));
+  if (hasPremiumName) sizeBonus += 1;
+
+  if (safeBool(scrape.has_premium_services)) sizeBonus += 1;
+
+  nousScore = Math.min(10, nousScore + Math.min(3, sizeBonus));
+  if (sizeBonus > 0) nousReasons.push(`size_bonus(+${Math.min(3, sizeBonus)})`);
+
   // Tiering
   const tiers = cfg.tiers;
   const priority_tier = nousScore >= tiers.hot ? 'HOT' : nousScore >= tiers.warm ? 'WARM' : 'COLD';
@@ -172,8 +204,6 @@ export function scoreShop(shop) {
       : tcScore >= tco.maybe
         ? 'MAYBE'
         : 'NO';
-
-  const maturity = computeMaturity(shop);
 
   return {
     nous_score: nousScore,

@@ -71,5 +71,21 @@
     "min": 3.5,
     "max": 4.3
   },
-  "establishedReviewCount": 50
+  "establishedReviewCount": 50,
+  "sizeWeights": {
+    "review_count_200_plus": 2,
+    "review_velocity_100_plus": 1,
+    "staff_count_3_plus": 1
+  },
+  "premiumNameKeywords": [
+    "premium", "luxury", "performance", "custom", "pro", "elite"
+  ],
+  "premiumServiceKeywords": [
+    "ceramic coating", "ppf", "paint protection", "premium accessories",
+    "custom wheels", "high-performance", "alignment specialist",
+    "detailing", "window tint"
+  ],
+  "excludeTypes": [
+    "gas_station", "convenience_store", "car_wash"
+  ]
 }

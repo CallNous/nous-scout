@@ -222,6 +222,9 @@ function analyzeHtml(html, url) {
     static_pricing: staticPricing,
     no_ecommerce: !hasEcommerce,
 
+    // Premium service indicators
+    has_premium_services: /ceramic coat|ppf|paint protection|premium accessories|custom wheel|high.performance|alignment specialist|detail(ing)?|window tint/i.test(bodyText),
+
     // Scheduling gaps (inform the hours_gap boost)
     has_weekend_hours: hasWeekendHours && !weekendHoursGuess,
     has_evening_hours: hasEveningHours,

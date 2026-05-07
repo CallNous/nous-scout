@@ -95,9 +95,9 @@ async function fetchEligibleLeads() {
   const params = new URLSearchParams();
   params.set('select', 'id,shop_name,city,province,priority_tier,address,geocode_confidence');
   params.append('address', 'not.is.null');
+  // Never overwrite place_details (Google Places geometry = ground truth).
+  params.append('geocode_confidence', 'neq.place_details');
   if (RETRY_FAILED) {
-    // Either lat IS NULL, or (lat IS NULL OR confidence='failed') so we re-try
-    // any row that previously failed.
     params.append(
       'or',
       '(latitude.is.null,geocode_confidence.eq.failed)'
