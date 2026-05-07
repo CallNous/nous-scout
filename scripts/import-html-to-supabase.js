@@ -163,6 +163,16 @@ for (const panel of cityPanels) {
         // Malformed attr -- leave empty so the trigger falls back to name regex.
       }
     }
+    let opening_hours = null;
+    const hoursAttr = $card.attr('data-hours');
+    if (hoursAttr) {
+      try {
+        const parsed = JSON.parse(hoursAttr);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) opening_hours = parsed;
+      } catch {
+        // Malformed attr -- leave null.
+      }
+    }
     const shopName = $card.find('.call-name').first().text().trim();
     if (!shopName) return;
     const address = $card.find('.call-address').first().text().trim() || null;
@@ -218,6 +228,7 @@ for (const panel of cityPanels) {
       nous_pitch: nousPitch,
       contact_names: contactNames,
       types,
+      opening_hours,
       run_id: runId,
       source: 'html_import',
     });
